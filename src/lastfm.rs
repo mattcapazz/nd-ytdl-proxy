@@ -59,7 +59,6 @@ pub struct TrackInfo {
     pub album: Option<String>,
     pub image_url: Option<String>,
     pub genres: Vec<String>,
-    pub listeners: i64,
     pub duration_sec: i64,
 }
 
@@ -86,7 +85,6 @@ pub async fn search(query: &str) -> Vec<TrackInfo> {
         .map(|t| {
             let name = t["name"].as_str().unwrap_or("").to_string();
             let artist = t["artist"].as_str().unwrap_or("").to_string();
-            let listeners: i64 = t["listeners"].as_str().unwrap_or("0").parse().unwrap_or(0);
             async move {
                 let (album, image_url, genres, duration) = get_track_info(&artist, &name).await;
                 TrackInfo {
@@ -95,7 +93,6 @@ pub async fn search(query: &str) -> Vec<TrackInfo> {
                     album,
                     image_url,
                     genres,
-                    listeners,
                     duration_sec: duration.unwrap_or(0),
                 }
             }

@@ -8,6 +8,8 @@ mod title;
 mod utils;
 mod youtube;
 
+use std::collections::HashMap;
+
 use actix_web::{App, HttpRequest, HttpServer, web};
 use serde_json::Value;
 use tracing::info;
@@ -60,6 +62,9 @@ async fn handler(
 
 async fn handle_get_genres(req: HttpRequest) -> actix_web::Result<actix_web::HttpResponse> {
     let query = req.uri().query().unwrap_or("");
+    let query_map = parse_query(query);
+    let user = query_map.get("u").cloned().unwrap_or_default();
+
     let url = format!("{}/rest/getGenres.view?{}", utils::upstream_url(), query);
 
     let mut data: Value = utils::http_client()
@@ -71,13 +76,80 @@ async fn handle_get_genres(req: HttpRequest) -> actix_web::Result<actix_web::Htt
         .await
         .map_err(actix_web::error::ErrorBadGateway)?;
 
-    if let Some(genres) = data["subsonic-response"]["genres"]["genre"].as_array_mut() {
-        genres.retain(|g| {
-            g["value"]
-                .as_str()
-                .map(|v| !v.eq_ignore_ascii_case("music"))
-                .unwrap_or(true)
-        });
+    if !user.is_empty() && db::has_any(&user) {
+        // recount genres from only the albums belonging to this user's artists
+        let allowed = db::get_artists(&user);
+        let albums_url = format!(
+            "{}/rest/getAlbumList2.view?{}&type=alphabeticalByName&size=500",
+            utils::upstream_url(),
+            query
+        );
+
+        let albums_data: Value = utils::http_client()
+            .get(&albums_url)
+            .send()
+            .await
+            .map_err(actix_web::error::ErrorBadGateway)?
+            .json()
+            .await
+            .map_err(actix_web::error::ErrorBadGateway)?;
+
+        let mut album_counts: HashMap<String, u64> = HashMap::new();
+        let mut song_counts: HashMap<String, u64> = HashMap::new();
+
+        if let Some(albums) = albums_data
+            .get("subsonic-response")
+            .and_then(|r| r.get("albumList2"))
+            .and_then(|al| al.get("album"))
+            .and_then(|a| a.as_array())
+        {
+            for album in albums {
+                let artist = album["artist"].as_str().unwrap_or("");
+                if !allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist)) {
+                    continue;
+                }
+                let genre = album["genre"].as_str().unwrap_or("");
+                if genre.is_empty() || genre.eq_ignore_ascii_case("music") {
+                    continue;
+                }
+                *album_counts.entry(genre.to_string()).or_default() += 1;
+                *song_counts.entry(genre.to_string()).or_default() +=
+                    album["songCount"].as_u64().unwrap_or(0);
+            }
+        }
+
+        let genres: Vec<Value> = album_counts
+            .iter()
+            .map(|(name, &ac)| {
+                serde_json::json!({
+                    "value": name,
+                    "albumCount": ac,
+                    "songCount": song_counts.get(name).copied().unwrap_or(0),
+                })
+            })
+            .collect();
+
+        if let Some(genre_arr) = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("genres"))
+            .and_then(|g| g.get_mut("genre"))
+        {
+            *genre_arr = Value::Array(genres);
+        }
+    } else {
+        if let Some(genres) = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("genres"))
+            .and_then(|g| g.get_mut("genre"))
+            .and_then(|g| g.as_array_mut())
+        {
+            genres.retain(|g| {
+                g["value"]
+                    .as_str()
+                    .map(|v| !v.eq_ignore_ascii_case("music"))
+                    .unwrap_or(true)
+            });
+        }
     }
 
     Ok(actix_web::HttpResponse::Ok().json(data))
@@ -116,19 +188,43 @@ async fn handle_filtered(
 
 fn filter_get_album(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
-    if let Some(song_list) = data["subsonic-response"]["album"]["song"].as_array_mut() {
-        song_list.retain(|s| {
-            let artist = s["artist"].as_str().unwrap_or("");
-            allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
-        });
+    let should_remove = {
+        let songs = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("album"))
+            .and_then(|a| a.get_mut("song"))
+            .and_then(|s| s.as_array_mut());
+        if let Some(song_list) = songs {
+            song_list.retain(|s| {
+                let artist = s["artist"].as_str().unwrap_or("");
+                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+            });
+            song_list.is_empty()
+        } else {
+            false
+        }
+    };
+    if should_remove {
+        if let Some(album) = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("album"))
+            .and_then(|a| a.as_object_mut())
+        {
+            album.remove("song");
+        }
     }
 }
 
 fn filter_get_artists(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
-    if let Some(indexes) = data["subsonic-response"]["artists"]["index"].as_array_mut() {
+    let indexes = data
+        .get_mut("subsonic-response")
+        .and_then(|r| r.get_mut("artists"))
+        .and_then(|a| a.get_mut("index"))
+        .and_then(|i| i.as_array_mut());
+    if let Some(indexes) = indexes {
         for index in indexes.iter_mut() {
-            if let Some(artists) = index["artist"].as_array_mut() {
+            if let Some(artists) = index.get_mut("artist").and_then(|a| a.as_array_mut()) {
                 artists.retain(|a| {
                     a["name"]
                         .as_str()
@@ -148,21 +244,59 @@ fn filter_get_artists(user: &str, data: &mut Value) {
 
 fn filter_get_album_list(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
-    if let Some(albums) = data["subsonic-response"]["albumList"]["album"].as_array_mut() {
-        albums.retain(|a| {
-            let artist = a["artist"].as_str().unwrap_or("");
-            allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
-        });
+    let should_remove = {
+        let albums = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("albumList"))
+            .and_then(|al| al.get_mut("album"))
+            .and_then(|a| a.as_array_mut());
+        if let Some(albums) = albums {
+            albums.retain(|a| {
+                let artist = a["artist"].as_str().unwrap_or("");
+                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+            });
+            albums.is_empty()
+        } else {
+            false
+        }
+    };
+    if should_remove {
+        if let Some(list) = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("albumList"))
+            .and_then(|al| al.as_object_mut())
+        {
+            list.remove("album");
+        }
     }
 }
 
 fn filter_get_album_list2(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
-    if let Some(albums) = data["subsonic-response"]["albumList2"]["album"].as_array_mut() {
-        albums.retain(|a| {
-            let artist = a["artist"].as_str().unwrap_or("");
-            allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
-        });
+    let should_remove = {
+        let albums = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("albumList2"))
+            .and_then(|al| al.get_mut("album"))
+            .and_then(|a| a.as_array_mut());
+        if let Some(albums) = albums {
+            albums.retain(|a| {
+                let artist = a["artist"].as_str().unwrap_or("");
+                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+            });
+            albums.is_empty()
+        } else {
+            false
+        }
+    };
+    if should_remove {
+        if let Some(list) = data
+            .get_mut("subsonic-response")
+            .and_then(|r| r.get_mut("albumList2"))
+            .and_then(|al| al.as_object_mut())
+        {
+            list.remove("album");
+        }
     }
 }
 
