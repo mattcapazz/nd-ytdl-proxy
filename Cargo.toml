@@ -1,0 +1,15 @@
+[package]
+name = "nd-ytdl-proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.13.0"
+anyhow = "1.0.102"
+awc = "3.8.2"
+futures-util = "0.3.32"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "stream"] }
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+tokio = { version = "1.50.0", features = ["macros", "process", "rt-multi-thread"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"

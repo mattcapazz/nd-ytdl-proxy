@@ -1,0 +1,33 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    restart: unless-stopped
+    ports:
+      - "4533:4533"
+    volumes:
+      - ./data:/data
+      - ./music:/music
+    environment:
+      ND_SCANSCHEDULE: "0"
+      ND_LOGLEVEL: "info"
+    networks:
+      - internal
+
+  proxy:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "4532:4532"
+    environment:
+      UPSTREAM_URL: "http://navidrome:4533"
+      MUSIC_DIR: "/music"
+      LASTFM_API_KEY: "${LASTFM_API_KEY}"
+    volumes:
+      - ./music:/music
+    depends_on:
+      - navidrome
+    networks:
+      - internal
+
+networks:
+  internal:
