@@ -21,9 +21,12 @@ services:
     environment:
       UPSTREAM_URL: "http://navidrome:4533"
       MUSIC_DIR: "/music"
+      ND_ADMIN_USER: "${ND_ADMIN_USER}"
+      ND_ADMIN_PASS: "${ND_ADMIN_PASS}"
       LASTFM_API_KEY: "${LASTFM_API_KEY}"
     volumes:
       - ./music:/music
+      - ./data:/app/data
     depends_on:
       - navidrome
     networks:

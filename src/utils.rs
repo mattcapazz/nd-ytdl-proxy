@@ -7,9 +7,14 @@ static UPSTREAM: LazyLock<String> = LazyLock::new(|| {
     std::env::var("UPSTREAM_URL").unwrap_or_else(|_| "http://0.0.0.0:4533".to_string())
 });
 
-static MUSIC: LazyLock<String> = LazyLock::new(|| {
-    std::env::var("MUSIC_DIR").unwrap_or_else(|_| "/music".to_string())
-});
+static MUSIC: LazyLock<String> =
+    LazyLock::new(|| std::env::var("MUSIC_DIR").unwrap_or_else(|_| "/music".to_string()));
+
+static ADMIN_USER: LazyLock<String> =
+    LazyLock::new(|| std::env::var("ND_ADMIN_USER").unwrap_or_else(|_| "admin".to_string()));
+
+static ADMIN_PASS: LazyLock<String> =
+    LazyLock::new(|| std::env::var("ND_ADMIN_PASS").unwrap_or_else(|_| "admin".to_string()));
 
 pub fn http_client() -> &'static reqwest::Client {
     &HTTP_CLIENT
@@ -21,6 +26,13 @@ pub fn upstream_url() -> &'static str {
 
 pub fn music_dir() -> &'static str {
     &MUSIC
+}
+
+pub fn admin_auth_query() -> String {
+    format!(
+        "u={}&p={}&v=1.16.1&c=nd-ytdl-proxy&f=json",
+        &*ADMIN_USER, &*ADMIN_PASS
+    )
 }
 
 pub fn parse_query(q: &str) -> HashMap<String, String> {

@@ -30,6 +30,7 @@ pub async fn download_and_scan(
     artist: &str,
     title: &str,
     raw_query: &str,
+    user: &str,
 ) -> anyhow::Result<()> {
     let base = music_dir();
     let safe_artist = sanitize_filename(artist);
@@ -100,9 +101,10 @@ pub async fn download_and_scan(
     if !already_queued(&safe_artist) {
         let ar = safe_artist.clone();
         let rq = raw_query.to_string();
+        let u = user.to_string();
         info!("queuing top 10 download: {}", ar);
         tokio::spawn(async move {
-            if let Err(e) = download_artist_top10(&ar, &rq).await {
+            if let Err(e) = download_artist_top10(&ar, &rq, &u).await {
                 warn!("artist top 10 download failed for {}: {}", ar, e);
             }
         });
@@ -114,7 +116,7 @@ pub async fn download_and_scan(
     Ok(())
 }
 
-async fn download_artist_top10(artist: &str, raw_query: &str) -> anyhow::Result<()> {
+async fn download_artist_top10(artist: &str, raw_query: &str, user: &str) -> anyhow::Result<()> {
     let base = music_dir();
     let artist_dir = format!("{}/{}", base, artist);
     let archive_path = format!("{}/archive.txt", artist_dir);
@@ -124,6 +126,15 @@ async fn download_artist_top10(artist: &str, raw_query: &str) -> anyhow::Result<
     info!("fetching top 10 tracks from Last.fm for: {}", artist);
     let top = crate::lastfm::top_tracks(artist, 10).await;
     info!("top tracks resolved for {}: {} tracks", artist, top.len());
+
+    // record all top-10 songs in this user's library
+    if !user.is_empty() {
+        let songs: Vec<(String, String)> = top
+            .iter()
+            .map(|(name, _)| (artist.to_string(), name.clone()))
+            .collect();
+        crate::db::add_songs(user, &songs);
+    }
 
     for (track_name, _) in &top {
         let safe_title = sanitize_filename(track_name);
@@ -194,7 +205,8 @@ async fn download_artist_top10(artist: &str, raw_query: &str) -> anyhow::Result<
     Ok(())
 }
 
-async fn trigger_scan(raw_query: &str) {
-    let url = format!("{}/rest/startScan.view?{}", upstream_url(), raw_query);
+async fn trigger_scan(_raw_query: &str) {
+    let auth = crate::utils::admin_auth_query();
+    let url = format!("{}/rest/startScan.view?{}", upstream_url(), auth);
     let _ = http_client().get(&url).send().await;
 }

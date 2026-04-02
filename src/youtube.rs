@@ -14,6 +14,9 @@ pub async fn handle_stream(req: HttpRequest) -> actix_web::Result<HttpResponse> 
 
     info!("yt stream: {} - {}", artist, title);
 
+    let user = query_map.get("u").cloned().unwrap_or_default();
+    crate::db::add_song(&user, &artist, &title);
+
     let search_query = format!("{} - {}", artist, title);
     let video_id = yt_search_one(&search_query).await.map_err(|e| {
         warn!("yt search error: {}", e);
@@ -31,9 +34,16 @@ pub async fn handle_stream(req: HttpRequest) -> actix_web::Result<HttpResponse> 
     let title_owned = title.clone();
     let vid = video_id.clone();
     let raw_query = req.uri().query().unwrap_or("").to_string();
+    let user_owned = user.clone();
     tokio::spawn(async move {
-        if let Err(e) =
-            crate::download::download_and_scan(&vid, &artist_owned, &title_owned, &raw_query).await
+        if let Err(e) = crate::download::download_and_scan(
+            &vid,
+            &artist_owned,
+            &title_owned,
+            &raw_query,
+            &user_owned,
+        )
+        .await
         {
             warn!("background download failed: {}", e);
         }
