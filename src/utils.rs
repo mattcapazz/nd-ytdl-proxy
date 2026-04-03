@@ -49,7 +49,7 @@ pub fn parse_query(q: &str) -> HashMap<String, String> {
         .collect()
 }
 
-fn url_decode(s: &str) -> String {
+pub fn url_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

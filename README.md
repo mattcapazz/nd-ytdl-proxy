@@ -12,9 +12,14 @@ Proxy sits in front of Navidrome and intercepts Subsonic API calls:
 
 - **search** - hits Navidrome first, then mixes in Last.fm results
 - **stream** - streams audio from YouTube via yt-dlp, downloads the mp3 in the background with metadata (album art, genre)
-- **auto-populate** - first time you stream a song from an artist, it grabs their top 10 tracks from Last.fm too
 - **cover art** - fetched from Last.fm and cached locally
+- ...
 - everything else gets forwarded straight to Navidrome
+
+The proxy also adds a few features on top:
+
+- **Auto-populate** - first time you stream a song from an artist, it grabs their top 10 tracks from Last.fm too
+- **Trash Queue** - each user has a "Trash Queue" playlist; adding a song hides it from their library and deletes it from the server if no other users have it
 
 Both containers share the same `/music` volume so the proxy can save downloads where Navidrome reads from
 
@@ -29,7 +34,3 @@ docker-compose up -d
 ```
 
 Proxy runs on port **4532**, Navidrome on **4533**. **Point your Subsonic client at the proxy**
-
-### Devlog
-
-**02/04/26:** the only real issue right now is getting rid of accidentally downloaded music. There's no way to hide a song from the library. I'll probably do something hacky like a "Trash Bin" playlist that users can dump unwanted songs into. Also working on custom generated playlists. tbd

@@ -110,7 +110,7 @@ pub async fn download_and_scan(
         });
     }
 
-    trigger_scan(raw_query).await;
+    trigger_scan().await;
     info!("yt {}: triggered navidrome scan", video_id);
 
     Ok(())
@@ -199,13 +199,24 @@ async fn download_artist_top10(artist: &str, raw_query: &str, user: &str) -> any
     }
 
     info!("top 10 download complete for: {}", artist);
-    trigger_scan(raw_query).await;
+    trigger_scan().await;
     info!("top 10 {}: triggered navidrome scan", artist);
 
     Ok(())
 }
 
-async fn trigger_scan(_raw_query: &str) {
+pub fn delete_song_file(artist: &str, title: &str) {
+    let base = music_dir();
+    let safe_artist = sanitize_filename(artist);
+    let safe_title = sanitize_filename(title);
+    let path = format!("{}/{}/{}.mp3", base, safe_artist, safe_title);
+    if std::path::Path::new(&path).exists() {
+        std::fs::remove_file(&path).ok();
+        info!("deleted song file: {}", path);
+    }
+}
+
+pub async fn trigger_scan() {
     let auth = crate::utils::admin_auth_query();
     let url = format!("{}/rest/startScan.view?{}", upstream_url(), auth);
     let _ = http_client().get(&url).send().await;

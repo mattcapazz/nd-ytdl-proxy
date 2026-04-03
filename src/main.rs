@@ -25,6 +25,10 @@ async fn handler(
     let id = query_map.get("id").map(String::as_str).unwrap_or("");
 
     match req.uri().path() {
+        "/rest/createPlaylist"
+        | "/rest/createPlaylist.view"
+        | "/rest/updatePlaylist"
+        | "/rest/updatePlaylist.view" => handle_playlist_update(req, payload).await,
         "/rest/getAlbum.view" | "/rest/getAlbum" if id.starts_with("yt_") => {
             youtube::handle_get_album(req).await
         }
@@ -44,18 +48,21 @@ async fn handler(
             youtube::handle_cover_art(req).await
         }
         "/rest/getGenres.view" | "/rest/getGenres" => handle_get_genres(req).await,
-        "/rest/search3.view" => search::handle(req).await,
-        "/rest/stream" | "/rest/stream.view" if id.starts_with("yt_") => {
-            youtube::handle_stream(req).await
+        "/rest/getPlaylists.view" | "/rest/getPlaylists" => handle_get_playlists(req).await,
+        "/rest/getPlaylist.view" | "/rest/getPlaylist" if id == "delete-queue" => {
+            handle_get_delete_queue(req).await
         }
+        "/rest/search3.view" => search::handle(req).await,
         "/rest/scrobble.view" | "/rest/scrobble" if id.starts_with("yt_") => {
             youtube::handle_scrobble(req).await
         }
+        "/rest/stream" | "/rest/stream.view" if id.starts_with("yt_") => {
+            youtube::handle_stream(req).await
+        }
         "/rest/stream" | "/rest/stream.view" => handle_nd_stream(req, payload).await,
-        "/rest/updatePlaylist.view"
-        | "/rest/updatePlaylist"
-        | "/rest/createPlaylist.view"
-        | "/rest/createPlaylist" => handle_playlist_update(req, payload).await,
+        "/rest/deletePlaylist.view" | "/rest/deletePlaylist" if id == "delete-queue" => {
+            Ok(actix_web::HttpResponse::Ok().json(subsonic_ok()))
+        }
         _ => proxy::forward(req, payload).await,
     }
 }
@@ -188,6 +195,7 @@ async fn handle_filtered(
 
 fn filter_get_album(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
+    let trashed = db::get_trashed_songs(user);
     let should_remove = {
         let songs = data
             .get_mut("subsonic-response")
@@ -197,7 +205,13 @@ fn filter_get_album(user: &str, data: &mut Value) {
         if let Some(song_list) = songs {
             song_list.retain(|s| {
                 let artist = s["artist"].as_str().unwrap_or("");
-                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+                let title = s["title"].as_str().unwrap_or("");
+                if !allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist)) {
+                    return false;
+                }
+                !trashed
+                    .iter()
+                    .any(|(a, t)| a.eq_ignore_ascii_case(artist) && t.eq_ignore_ascii_case(title))
             });
             song_list.is_empty()
         } else {
@@ -358,7 +372,13 @@ async fn handle_playlist_update(
     } else {
         query
     };
-
+    // intercept updates targeting the virtual delete queue playlist
+    let query_map = parse_query(&merged_query);
+    let playlist_id = query_map.get("playlistId").cloned().unwrap_or_default();
+    if playlist_id == "delete-queue" {
+        let user = query_map.get("u").cloned().unwrap_or_default();
+        return handle_delete_queue_update(&user, &merged_query).await;
+    }
     let url = format!("{}{path}?{merged_query}", utils::upstream_url());
     info!("forwarding playlist {} -> {}", req.method(), url);
 
@@ -374,6 +394,178 @@ async fn handle_playlist_update(
     info!("playlist response: {}", resp);
 
     Ok(actix_web::HttpResponse::Ok().json(resp))
+}
+
+fn subsonic_ok() -> Value {
+    serde_json::json!({
+        "subsonic-response": {
+            "status": "ok",
+            "version": "1.16.1"
+        }
+    })
+}
+
+async fn handle_get_playlists(req: HttpRequest) -> actix_web::Result<actix_web::HttpResponse> {
+    let query = req.uri().query().unwrap_or("");
+    let query_map = parse_query(query);
+    let user = query_map.get("u").cloned().unwrap_or_default();
+
+    let url = format!("{}/rest/getPlaylists.view?{}", utils::upstream_url(), query);
+
+    let mut data: Value = utils::http_client()
+        .get(&url)
+        .send()
+        .await
+        .map_err(actix_web::error::ErrorBadGateway)?
+        .json()
+        .await
+        .map_err(actix_web::error::ErrorBadGateway)?;
+
+    let delete_queue = serde_json::json!({
+        "id": "delete-queue",
+        "name": "Delete Queue",
+        "comment": "",
+        "songCount": 0,
+        "duration": 0,
+        "public": false,
+        "owner": user,
+        "created": "2024-01-01T00:00:00.000Z",
+        "changed": "2024-01-01T00:00:00.000Z"
+    });
+
+    if let Some(playlists) = data
+        .get_mut("subsonic-response")
+        .and_then(|r| r.get_mut("playlists"))
+        .and_then(|p| p.get_mut("playlist"))
+        .and_then(|p| p.as_array_mut())
+    {
+        playlists.push(delete_queue);
+    } else if let Some(resp) = data.get_mut("subsonic-response") {
+        resp["playlists"] = serde_json::json!({
+            "playlist": [delete_queue]
+        });
+    }
+
+    Ok(actix_web::HttpResponse::Ok().json(data))
+}
+
+async fn handle_get_delete_queue(req: HttpRequest) -> actix_web::Result<actix_web::HttpResponse> {
+    let query_map = parse_query(req.uri().query().unwrap_or(""));
+    let user = query_map.get("u").cloned().unwrap_or_default();
+
+    let data = serde_json::json!({
+        "subsonic-response": {
+            "status": "ok",
+            "version": "1.16.1",
+            "playlist": {
+                "id": "delete-queue",
+                "name": "Delete Queue",
+                "comment": "",
+                "songCount": 0,
+                "duration": 0,
+                "public": false,
+                "owner": user,
+                "created": "2024-01-01T00:00:00.000Z",
+                "changed": "2024-01-01T00:00:00.000Z",
+                "entry": []
+            }
+        }
+    });
+
+    Ok(actix_web::HttpResponse::Ok().json(data))
+}
+
+// extract all values for a given key from a query string (handles repeated params)
+fn parse_query_values(q: &str, key: &str) -> Vec<String> {
+    q.split('&')
+        .filter_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            let k = parts.next()?;
+            if k == key {
+                Some(utils::url_decode(parts.next().unwrap_or("")))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+async fn handle_delete_queue_update(
+    user: &str,
+    merged_query: &str,
+) -> actix_web::Result<actix_web::HttpResponse> {
+    let song_ids = parse_query_values(merged_query, "songIdToAdd");
+
+    if song_ids.is_empty() {
+        return Ok(actix_web::HttpResponse::Ok().json(subsonic_ok()));
+    }
+
+    let auth = utils::admin_auth_query();
+    let mut needs_scan = false;
+    let mut nd_ids_to_remove: Vec<String> = Vec::new();
+
+    for song_id in &song_ids {
+        let (artist, title, is_nd) = if song_id.starts_with("yt_") {
+            match lastfm::decode_track_id(song_id) {
+                Some((a, t)) => (a, t, false),
+                None => continue,
+            }
+        } else {
+            // look up song details from navidrome
+            let url = format!(
+                "{}/rest/getSong.view?{}&id={}",
+                utils::upstream_url(),
+                auth,
+                song_id
+            );
+            let data: Value = utils::http_client()
+                .get(&url)
+                .send()
+                .await
+                .map_err(actix_web::error::ErrorBadGateway)?
+                .json()
+                .await
+                .map_err(actix_web::error::ErrorBadGateway)?;
+
+            let song = &data["subsonic-response"]["song"];
+            let a = song["artist"].as_str().unwrap_or("").to_string();
+            let mut t = song["title"].as_str().unwrap_or("").to_string();
+            if a.is_empty() || t.is_empty() {
+                continue;
+            }
+            // navidrome sometimes returns titles like "Artist - Title"
+            if let Some(stripped) = t.strip_prefix(&a).and_then(|s| s.strip_prefix(" - ")) {
+                t = stripped.to_string();
+            }
+            (a, t, true)
+        };
+
+        info!(
+            "delete queue: trashing '{}' - '{}' for user '{}'",
+            artist, title, user
+        );
+        db::trash_song(user, &artist, &title);
+
+        if !db::song_owned_by_others(user, &artist, &title) {
+            info!(
+                "delete queue: no other owners, deleting '{}' - '{}'",
+                artist, title
+            );
+            download::delete_song_file(&artist, &title);
+            if is_nd {
+                nd_ids_to_remove.push(song_id.clone());
+            }
+            needs_scan = true;
+        }
+    }
+
+    db::navidrome_delete_songs(&nd_ids_to_remove);
+
+    if needs_scan {
+        download::trigger_scan().await;
+    }
+
+    Ok(actix_web::HttpResponse::Ok().json(subsonic_ok()))
 }
 
 #[actix_web::main]

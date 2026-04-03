@@ -100,6 +100,32 @@ pub fn is_trashed(user: &str, artist: &str, title: &str) -> bool {
     .unwrap_or(false)
 }
 
+// check if any other user (besides the given one) owns this song non-trashed
+pub fn song_owned_by_others(user: &str, artist: &str, title: &str) -> bool {
+    let db = DB.lock().unwrap();
+    db.query_row(
+        "SELECT COUNT(*) FROM user_songs WHERE user != ?1 AND artist = ?2 AND title = ?3 AND trashed = 0",
+        rusqlite::params![user, artist, title],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|c| c > 0)
+    .unwrap_or(false)
+}
+
+// get set of (artist, title) pairs that are trashed
+pub fn get_trashed_songs(user: &str) -> HashSet<(String, String)> {
+    let db = DB.lock().unwrap();
+    let mut stmt = db
+        .prepare("SELECT artist, title FROM user_songs WHERE user = ?1 AND trashed = 1")
+        .unwrap();
+    stmt.query_map(rusqlite::params![user], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
 pub fn has_any(user: &str) -> bool {
     let db = DB.lock().unwrap();
     let count: i64 = db
@@ -110,4 +136,35 @@ pub fn has_any(user: &str) -> bool {
         )
         .unwrap_or(0);
     count > 0
+}
+
+// remove songs from navidrome's media_file table so they don't linger as missing
+pub fn navidrome_delete_songs(ids: &[String]) {
+    if ids.is_empty() {
+        return;
+    }
+    let nd_path = std::env::var("ND_DB_PATH").unwrap_or_else(|_| "data/navidrome.db".to_string());
+    let conn = match Connection::open(&nd_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("failed to open navidrome db: {}", e);
+            return;
+        }
+    };
+    // match navidrome's WAL mode so we don't corrupt its journal
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+        .ok();
+    for id in ids {
+        conn.execute(
+            "DELETE FROM media_file WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .ok();
+        conn.execute(
+            "DELETE FROM media_file_artists WHERE media_file_id = ?1",
+            rusqlite::params![id],
+        )
+        .ok();
+    }
+    info!("removed {} entries from navidrome media_file", ids.len());
 }
