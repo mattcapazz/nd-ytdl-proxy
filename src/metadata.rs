@@ -63,6 +63,7 @@ async fn read_tags(path: &str) -> (Option<String>, Option<String>, Option<String
 
 async fn write_tags(path: &str, album: &str, genre: &str, artist: &str) -> anyhow::Result<()> {
     let tmp = format!("{}.fixing.mp3", path);
+    let display_artist = crate::utils::artist_display_name(artist);
     let status = Command::new("ffmpeg")
         .args([
             "-y",
@@ -75,7 +76,7 @@ async fn write_tags(path: &str, album: &str, genre: &str, artist: &str) -> anyho
             "-metadata",
             &format!("genre={}", genre),
             "-metadata",
-            &format!("artist={}", artist),
+            &format!("artist={}", display_artist),
             "-id3v2_version",
             "3",
             &tmp,

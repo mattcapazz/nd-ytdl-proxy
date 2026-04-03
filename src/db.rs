@@ -23,6 +23,7 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
 });
 
 // add a song to a user's library (skips if already exists)
+// when artist contains multiple names, stores entries for each individual artist
 pub fn add_song(user: &str, artist: &str, title: &str) {
     if user.is_empty() || artist.is_empty() || title.is_empty() {
         return;
@@ -33,6 +34,26 @@ pub fn add_song(user: &str, artist: &str, title: &str) {
         rusqlite::params![user, artist, title],
     )
     .ok();
+    // also store individual artists so the filter recognizes each one
+    for part in crate::utils::split_artists(artist) {
+        if part.eq_ignore_ascii_case(artist) {
+            continue;
+        }
+        db.execute(
+            "INSERT OR IGNORE INTO user_songs (user, artist, title) VALUES (?1, ?2, ?3)",
+            rusqlite::params![user, part, title],
+        )
+        .ok();
+    }
+    // store the " / " display form too
+    let display = crate::utils::artist_display_name(artist);
+    if !display.eq_ignore_ascii_case(artist) {
+        db.execute(
+            "INSERT OR IGNORE INTO user_songs (user, artist, title) VALUES (?1, ?2, ?3)",
+            rusqlite::params![user, display, title],
+        )
+        .ok();
+    }
 }
 
 pub fn add_songs(user: &str, songs: &[(String, String)]) {

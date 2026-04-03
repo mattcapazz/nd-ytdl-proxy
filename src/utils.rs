@@ -73,6 +73,20 @@ pub fn url_decode(s: &str) -> String {
     out
 }
 
+pub fn url_encode_param(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 pub fn sanitize_filename(s: &str) -> String {
     s.chars()
         .map(|c| match c {
@@ -117,4 +131,32 @@ pub fn find_artist_dir(base: &str, artist: &str) -> String {
     }
 
     candidate
+}
+
+pub fn split_artists(s: &str) -> Vec<String> {
+    let mut tmp = s.to_string();
+
+    // normalize common separators into a single delimiter
+    tmp = tmp.replace(",", " /");
+    tmp = tmp.replace(" feat. ", " /");
+    tmp = tmp.replace(" feat ", " /");
+    tmp = tmp.replace(" ft. ", " /");
+    tmp = tmp.replace(" ft ", " /");
+    tmp = tmp.replace(" & ", " /");
+    tmp = tmp.replace(" x ", " /");
+
+    tmp.split('/')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+// returns artist name with " / " separators so Navidrome can parse individual artists
+pub fn artist_display_name(s: &str) -> String {
+    let parts = split_artists(s);
+    if parts.len() > 1 {
+        parts.join(" / ")
+    } else {
+        s.to_string()
+    }
 }

@@ -170,6 +170,88 @@ pub async fn handle_cover_art(req: HttpRequest) -> actix_web::Result<HttpRespons
         .streaming(stream))
 }
 
+pub async fn handle_get_artist(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    let query_map = parse_query(req.uri().query().unwrap_or(""));
+    let raw_id = query_map.get("id").cloned().unwrap_or_default();
+    let artist_name = raw_id
+        .strip_prefix("yt_artist_")
+        .unwrap_or(&raw_id)
+        .to_string();
+    let query = req.uri().query().unwrap_or("");
+
+    // build list of names to try: individual parts first, then combined, then display form
+    let parts = crate::utils::split_artists(&artist_name);
+    let mut candidates: Vec<String> = Vec::new();
+    if parts.len() > 1 {
+        candidates.extend(parts);
+    }
+    candidates.push(artist_name.clone());
+    let display = crate::utils::artist_display_name(&artist_name);
+    if !display.eq_ignore_ascii_case(&artist_name) {
+        candidates.push(display);
+    }
+
+    // try each candidate name against Navidrome
+    for name in &candidates {
+        let search_url = format!(
+            "{}/rest/search3.view?{}&query={}&artistCount=10&albumCount=0&songCount=0",
+            crate::utils::upstream_url(),
+            query,
+            crate::utils::url_encode_param(name)
+        );
+
+        let resp = match http_client().get(&search_url).send().await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let data: serde_json::Value = match resp.json().await {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let arr = match data["subsonic-response"]["searchResult3"]["artist"].as_array() {
+            Some(a) => a,
+            None => continue,
+        };
+
+        if let Some(found) = arr.iter().find(|a| {
+            a["name"]
+                .as_str()
+                .map(|n| n.eq_ignore_ascii_case(name))
+                .unwrap_or(false)
+        }) {
+            if let Some(real_id) = found["id"].as_str() {
+                let artist_url = format!(
+                    "{}/rest/getArtist.view?{}&id={}",
+                    crate::utils::upstream_url(),
+                    query,
+                    real_id
+                );
+                if let Ok(real_resp) = http_client().get(&artist_url).send().await {
+                    if let Ok(real_data) = real_resp.json::<serde_json::Value>().await {
+                        if real_data["subsonic-response"]["status"].as_str() == Some("ok") {
+                            return Ok(HttpResponse::Ok().json(real_data));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // fallback: return a minimal stub so the client doesn't error
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "subsonic-response": {
+            "status": "ok",
+            "version": "1.16.1",
+            "artist": {
+                "id": raw_id,
+                "name": artist_name,
+                "albumCount": 0,
+                "album": []
+            }
+        }
+    })))
+}
+
 pub async fn handle_get_album(_req: HttpRequest) -> actix_web::Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "subsonic-response": {

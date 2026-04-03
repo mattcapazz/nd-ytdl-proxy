@@ -41,6 +41,9 @@ async fn handler(
         "/rest/getAlbumList2.view" | "/rest/getAlbumList2" => {
             handle_filtered(req, payload, filter_get_album_list2).await
         }
+        "/rest/getArtist.view" | "/rest/getArtist" if id.starts_with("yt_artist_") => {
+            youtube::handle_get_artist(req).await
+        }
         "/rest/getArtists.view" | "/rest/getArtists" => {
             handle_filtered(req, payload, filter_get_artists).await
         }
@@ -112,7 +115,7 @@ async fn handle_get_genres(req: HttpRequest) -> actix_web::Result<actix_web::Htt
         {
             for album in albums {
                 let artist = album["artist"].as_str().unwrap_or("");
-                if !allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist)) {
+                if !artist_allowed(artist, &allowed) {
                     continue;
                 }
                 let genre = album["genre"].as_str().unwrap_or("");
@@ -193,6 +196,20 @@ async fn handle_filtered(
     Ok(actix_web::HttpResponse::Ok().json(data))
 }
 
+fn artist_allowed(artist: &str, allowed: &std::collections::HashSet<String>) -> bool {
+    if allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist)) {
+        return true;
+    }
+    // check if any individual part of a multi-artist name is allowed
+    let parts = utils::split_artists(artist);
+    if parts.len() > 1 {
+        return parts
+            .iter()
+            .any(|p| allowed.iter().any(|lib| lib.eq_ignore_ascii_case(p)));
+    }
+    false
+}
+
 fn filter_get_album(user: &str, data: &mut Value) {
     let allowed = db::get_artists(user);
     let trashed = db::get_trashed_songs(user);
@@ -206,7 +223,7 @@ fn filter_get_album(user: &str, data: &mut Value) {
             song_list.retain(|s| {
                 let artist = s["artist"].as_str().unwrap_or("");
                 let title = s["title"].as_str().unwrap_or("");
-                if !allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist)) {
+                if !artist_allowed(artist, &allowed) {
                     return false;
                 }
                 !trashed
@@ -242,7 +259,7 @@ fn filter_get_artists(user: &str, data: &mut Value) {
                 artists.retain(|a| {
                     a["name"]
                         .as_str()
-                        .map(|n| allowed.iter().any(|lib| lib.eq_ignore_ascii_case(n)))
+                        .map(|n| artist_allowed(n, &allowed))
                         .unwrap_or(false)
                 });
             }
@@ -267,7 +284,7 @@ fn filter_get_album_list(user: &str, data: &mut Value) {
         if let Some(albums) = albums {
             albums.retain(|a| {
                 let artist = a["artist"].as_str().unwrap_or("");
-                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+                artist_allowed(artist, &allowed)
             });
             albums.is_empty()
         } else {
@@ -296,7 +313,7 @@ fn filter_get_album_list2(user: &str, data: &mut Value) {
         if let Some(albums) = albums {
             albums.retain(|a| {
                 let artist = a["artist"].as_str().unwrap_or("");
-                allowed.iter().any(|lib| lib.eq_ignore_ascii_case(artist))
+                artist_allowed(artist, &allowed)
             });
             albums.is_empty()
         } else {

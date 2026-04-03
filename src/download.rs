@@ -67,9 +67,10 @@ pub async fn download_and_scan(
         &format!("{}:%(meta_artist)s", safe_artist),
     ]);
 
+    let display_artist = crate::utils::artist_display_name(artist);
     cmd.arg("--ppa").arg(format!(
         "EmbedMetadata+ffmpeg_i:-metadata artist={}",
-        safe_artist
+        display_artist
     ));
 
     if !genre_tag.is_empty() {
@@ -91,16 +92,25 @@ pub async fn download_and_scan(
 
     crate::metadata::fix_file(&dest, &safe_artist, &safe_title).await;
 
-    if !already_queued(artist) {
-        let ar = safe_artist.clone();
-        let rq = raw_query.to_string();
-        let u = user.to_string();
-        info!("queuing top 10 download: {}", ar);
-        tokio::spawn(async move {
-            if let Err(e) = download_artist_top10(&ar, &rq, &u).await {
-                warn!("artist top 10 download failed for {}: {}", ar, e);
-            }
-        });
+    // download top-10 for each individual artist, not the combined name
+    let parts = crate::utils::split_artists(artist);
+    let individual_artists = if parts.len() > 1 {
+        parts
+    } else {
+        vec![safe_artist.clone()]
+    };
+    for part in individual_artists {
+        if !already_queued(&part) {
+            let rq = raw_query.to_string();
+            let u = user.to_string();
+            info!("queuing top 10 download: {}", part);
+            let p = part.clone();
+            tokio::spawn(async move {
+                if let Err(e) = download_artist_top10(&p, &rq, &u).await {
+                    warn!("artist top 10 download failed for {}: {}", p, e);
+                }
+            });
+        }
     }
 
     trigger_scan().await;
@@ -140,7 +150,7 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
         let search_query = format!("{} - {}", artist, track_name);
         let output_template = format!("{}/{}.%(ext)s", artist_dir, safe_title);
 
-        let ppa_artist = format!("EmbedMetadata+ffmpeg_i:-metadata artist={}", artist);
+        let display_artist = crate::utils::artist_display_name(artist);
 
         let status = Command::new("yt-dlp")
             .args([
@@ -163,7 +173,7 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
                 "--parse-metadata",
                 &format!("{}:%(meta_artist)s", artist),
                 "--ppa",
-                &ppa_artist,
+                &format!("EmbedMetadata+ffmpeg_i:-metadata artist={}", display_artist),
                 "-o",
                 &output_template,
             ])

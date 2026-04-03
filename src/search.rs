@@ -182,11 +182,19 @@ fn map_lastfm_tracks(tracks: &[crate::lastfm::TrackInfo]) -> Vec<Value> {
                 .map(|g| serde_json::json!({"name": g}))
                 .collect();
 
+            // use the first individual artist for the artistId link
+            let parts = crate::utils::split_artists(&t.artist);
+            let primary = if parts.len() > 1 {
+                &parts[0]
+            } else {
+                &t.artist
+            };
+
             serde_json::json!({
                 "id": &id,
                 "title": &t.name,
                 "artist": &t.artist,
-                "artistId": format!("yt_artist_{}", t.artist),
+                "artistId": format!("yt_artist_{}", primary),
                 "album": t.album.as_deref().unwrap_or(""),
                 "albumId": "yt_album_lastfm",
                 "coverArt": &id,
