@@ -74,32 +74,6 @@ pub fn get_artists(user: &str) -> HashSet<String> {
         .collect()
 }
 
-// get set of (artist, title) pairs that are not trashed
-pub fn get_songs(user: &str) -> HashSet<(String, String)> {
-    let db = DB.lock().unwrap();
-    let mut stmt = db
-        .prepare("SELECT artist, title FROM user_songs WHERE user = ?1 AND trashed = 0")
-        .unwrap();
-    stmt.query_map(rusqlite::params![user], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })
-    .unwrap()
-    .filter_map(|r| r.ok())
-    .collect()
-}
-
-// check if a specific song is trashed for this user
-pub fn is_trashed(user: &str, artist: &str, title: &str) -> bool {
-    let db = DB.lock().unwrap();
-    db.query_row(
-        "SELECT trashed FROM user_songs WHERE user = ?1 AND artist = ?2 AND title = ?3",
-        rusqlite::params![user, artist, title],
-        |row| row.get::<_, i64>(0),
-    )
-    .map(|v| v == 1)
-    .unwrap_or(false)
-}
-
 // check if any other user (besides the given one) owns this song non-trashed
 pub fn song_owned_by_others(user: &str, artist: &str, title: &str) -> bool {
     let db = DB.lock().unwrap();

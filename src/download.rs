@@ -5,25 +5,18 @@ use tokio::process::Command;
 use tracing::{info, warn};
 
 use crate::utils::{http_client, music_dir, upstream_url};
+use deunicode::deunicode;
 
 static QUEUED_ARTISTS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn already_queued(artist: &str) -> bool {
     let mut guard = QUEUED_ARTISTS.lock().unwrap();
     let set = guard.get_or_insert_with(HashSet::new);
-    !set.insert(artist.to_lowercase())
+    let key = deunicode(artist).to_lowercase();
+    !set.insert(key)
 }
 
-pub fn sanitize_filename(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c => c,
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
+// filename sanitation moved to utils::sanitize_filename
 
 pub async fn download_and_scan(
     video_id: &str,
@@ -33,10 +26,10 @@ pub async fn download_and_scan(
     user: &str,
 ) -> anyhow::Result<()> {
     let base = music_dir();
-    let safe_artist = sanitize_filename(artist);
-    let safe_title = sanitize_filename(title);
+    let safe_artist = crate::utils::sanitize_filename(artist);
+    let safe_title = crate::utils::sanitize_filename(title);
 
-    let artist_dir = format!("{}/{}", base, safe_artist);
+    let artist_dir = crate::utils::find_artist_dir(base, artist);
     let dest = format!("{}/{}.mp3", artist_dir, safe_title);
 
     if std::path::Path::new(&dest).exists() {
@@ -98,7 +91,7 @@ pub async fn download_and_scan(
 
     crate::metadata::fix_file(&dest, &safe_artist, &safe_title).await;
 
-    if !already_queued(&safe_artist) {
+    if !already_queued(artist) {
         let ar = safe_artist.clone();
         let rq = raw_query.to_string();
         let u = user.to_string();
@@ -116,9 +109,9 @@ pub async fn download_and_scan(
     Ok(())
 }
 
-async fn download_artist_top10(artist: &str, raw_query: &str, user: &str) -> anyhow::Result<()> {
+async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Result<()> {
     let base = music_dir();
-    let artist_dir = format!("{}/{}", base, artist);
+    let artist_dir = crate::utils::find_artist_dir(base, artist);
     let archive_path = format!("{}/archive.txt", artist_dir);
 
     tokio::fs::create_dir_all(&artist_dir).await?;
@@ -137,7 +130,7 @@ async fn download_artist_top10(artist: &str, raw_query: &str, user: &str) -> any
     }
 
     for (track_name, _) in &top {
-        let safe_title = sanitize_filename(track_name);
+        let safe_title = crate::utils::sanitize_filename(track_name);
         let dest = format!("{}/{}.mp3", artist_dir, safe_title);
 
         if std::path::Path::new(&dest).exists() {
@@ -207,8 +200,8 @@ async fn download_artist_top10(artist: &str, raw_query: &str, user: &str) -> any
 
 pub fn delete_song_file(artist: &str, title: &str) {
     let base = music_dir();
-    let safe_artist = sanitize_filename(artist);
-    let safe_title = sanitize_filename(title);
+    let safe_artist = crate::utils::sanitize_filename(artist);
+    let safe_title = crate::utils::sanitize_filename(title);
     let path = format!("{}/{}/{}.mp3", base, safe_artist, safe_title);
     if std::path::Path::new(&path).exists() {
         std::fs::remove_file(&path).ok();

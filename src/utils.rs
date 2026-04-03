@@ -72,3 +72,49 @@ pub fn url_decode(s: &str) -> String {
     }
     out
 }
+
+pub fn sanitize_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c => c,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+pub fn find_artist_dir(base: &str, artist: &str) -> String {
+    use deunicode::deunicode;
+
+    fn canonical(s: &str) -> String {
+        let mut out = deunicode(s).to_lowercase();
+        out.retain(|c| c.is_alphanumeric());
+        out
+    }
+
+    let sanitized = sanitize_filename(artist);
+    let candidate = format!("{}/{}", base, sanitized);
+    if std::path::Path::new(&candidate).exists() {
+        return candidate;
+    }
+
+    let target = canonical(artist);
+    if let Ok(entries) = std::fs::read_dir(base) {
+        for entry in entries.flatten() {
+            if let Some(name_os) = entry.file_name().to_str() {
+                let name = name_os.to_string();
+                let existing = canonical(&name);
+                if existing == target {
+                    return format!("{}/{}", base, name);
+                }
+                // tolerate ligature transliterations like "ae" vs "a"
+                if existing.replace("ae", "a") == target || existing == target.replace("ae", "a") {
+                    return format!("{}/{}", base, name);
+                }
+            }
+        }
+    }
+
+    candidate
+}
