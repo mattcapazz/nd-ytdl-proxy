@@ -25,12 +25,11 @@ Both containers share the same `/music` volume so the proxy can save downloads w
 
 ### Setup
 
-**You'll need a** [**Last.fm API key**](https://www.last.fm/api/account/create) *(free to create)*
-
-```bash
-cp .env.example .env
-# then fill in your Last.fm API key
-docker-compose up -d
-```
+1. `git clone https://github.com/mattcapazz/nd-ytdl-proxy.git && cd nd-ytdl-proxy`
+2. `cp .env.example .env`
+3. `docker compose up -d`
+4. Visit http://localhost:4533 and create your Navidrome admin account
+5. Fill in your [Last.fm API key](https://www.last.fm/api/account/create) *(free)* and admin credentials in `.env`
+6. `docker compose up -d`
 
 Proxy runs on port **4532**, Navidrome on **4533**. **Point your Subsonic client at the proxy**
