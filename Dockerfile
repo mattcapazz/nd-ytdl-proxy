@@ -12,10 +12,11 @@ RUN cargo build --release --target x86_64-unknown-linux-musl
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates python3 py3-pip ffmpeg \
-    && pip3 install --break-system-packages yt-dlp
+    && pip3 install --break-system-packages mutagen yt-dlp
 
 WORKDIR /app
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/nd-ytdl-proxy .
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/repair-metadata .
 
 EXPOSE 4532
 

@@ -1,7 +1,15 @@
 [package]
 name = "nd-ytdl-proxy"
-version = "0.4.0"
+version = "1.0.0"
 edition = "2024"
+
+[[bin]]
+name = "nd-ytdl-proxy"
+path = "src/main.rs"
+
+[[bin]]
+name = "repair-metadata"
+path = "src/bin/repair_metadata.rs"
 
 [dependencies]
 actix-web = "4.13.0"
@@ -9,6 +17,7 @@ anyhow = "1.0.102"
 awc = "3.8.2"
 deunicode = "1.6.2"
 futures-util = "0.3.32"
+lofty = "0.23.3"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "stream"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 serde_json = { version = "1.0.149", features = ["preserve_order"] }

@@ -30,15 +30,12 @@ pub async fn download_and_scan(
     let safe_title = crate::utils::sanitize_filename(title);
 
     let artist_dir = crate::utils::find_artist_dir(base, artist);
-    let dest = format!("{}/{}.mp3", artist_dir, safe_title);
+    let dest = format!("{}/{}.opus", artist_dir, safe_title);
 
     if std::path::Path::new(&dest).exists() {
         info!("yt {}: already on disk, skipping", video_id);
         return Ok(());
     }
-
-    let (_, _, genres) = crate::lastfm::lookup(&safe_artist, &safe_title).await;
-    let genre_tag = genres.first().cloned().unwrap_or_default();
 
     tokio::fs::create_dir_all(&artist_dir).await?;
 
@@ -58,31 +55,15 @@ pub async fn download_and_scan(
         "bestaudio/best",
         "--extract-audio",
         "--audio-format",
-        "mp3",
+        "opus",
         "--audio-quality",
         "128K",
-        "--embed-metadata",
         "--embed-thumbnail",
-        "--parse-metadata",
-        &format!("{}:%(meta_artist)s", safe_artist),
+        "-o",
+        &output_template,
     ]);
 
-    let display_artist = crate::utils::artist_display_name(artist);
-    cmd.arg("--ppa").arg(format!(
-        "EmbedMetadata+ffmpeg_i:-metadata artist={}",
-        display_artist
-    ));
-
-    if !genre_tag.is_empty() {
-        cmd.arg("--ppa").arg(format!(
-            "EmbedMetadata+ffmpeg_i:-metadata genre={}",
-            genre_tag
-        ));
-    }
-
     let status = cmd
-        .arg("-o")
-        .arg(&output_template)
         .arg(format!("https://youtu.be/{}", video_id))
         .status()
         .await?;
@@ -141,7 +122,7 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
 
     for (track_name, _) in &top {
         let safe_title = crate::utils::sanitize_filename(track_name);
-        let dest = format!("{}/{}.mp3", artist_dir, safe_title);
+        let dest = format!("{}/{}.opus", artist_dir, safe_title);
 
         if std::path::Path::new(&dest).exists() {
             continue;
@@ -149,8 +130,6 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
 
         let search_query = format!("{} - {}", artist, track_name);
         let output_template = format!("{}/{}.%(ext)s", artist_dir, safe_title);
-
-        let display_artist = crate::utils::artist_display_name(artist);
 
         let status = Command::new("yt-dlp")
             .args([
@@ -165,15 +144,10 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
                 "bestaudio/best",
                 "--extract-audio",
                 "--audio-format",
-                "mp3",
+                "opus",
                 "--audio-quality",
                 "128K",
-                "--embed-metadata",
                 "--embed-thumbnail",
-                "--parse-metadata",
-                &format!("{}:%(meta_artist)s", artist),
-                "--ppa",
-                &format!("EmbedMetadata+ffmpeg_i:-metadata artist={}", display_artist),
                 "-o",
                 &output_template,
             ])
@@ -188,7 +162,7 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
     if let Ok(mut entries) = tokio::fs::read_dir(&artist_dir).await {
         while let Some(entry) = entries.next_entry().await.ok().flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("mp3") {
+            if path.extension().and_then(|e| e.to_str()) != Some("opus") {
                 continue;
             }
             let path_str = path.to_string_lossy().to_string();
@@ -212,7 +186,7 @@ pub fn delete_song_file(artist: &str, title: &str) {
     let base = music_dir();
     let safe_artist = crate::utils::sanitize_filename(artist);
     let safe_title = crate::utils::sanitize_filename(title);
-    let path = format!("{}/{}/{}.mp3", base, safe_artist, safe_title);
+    let path = format!("{}/{}/{}.opus", base, safe_artist, safe_title);
     if std::path::Path::new(&path).exists() {
         std::fs::remove_file(&path).ok();
         info!("deleted song file: {}", path);
