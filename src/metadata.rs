@@ -292,8 +292,9 @@ pub async fn fix_file(path: &str, artist: &str, title: &str) {
     // determine whether tags look ok; don't skip yet because we may still want to embed album art
     let tags_ok = !needs_fix(&album, &file_artist, &genre);
 
-    let (lfm_album, lfm_image, lfm_genres, mut lfm_date, lfm_track_number) =
+    let (lfm_album, lfm_image, lfm_genres, lfm_track_number) =
         crate::lastfm::lookup(artist, &clean_title).await;
+    let mut lfm_date: Option<String> = None;
     info!(
         "fix_file: lastfm for '{} - {}': album={:?} genres={:?}",
         artist, clean_title, lfm_album, lfm_genres

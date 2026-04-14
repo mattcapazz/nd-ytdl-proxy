@@ -49,7 +49,7 @@ async fn main() {
     println!();
 
     // last.fm track info
-    let (lfm_album, lfm_image, lfm_genres, lfm_date, lfm_track_number) =
+    let (lfm_album, lfm_image, lfm_genres, lfm_track_number) =
         lastfm::lookup(artist_name, title).await;
 
     println!("-- last.fm track --");
@@ -63,7 +63,7 @@ async fn main() {
             lfm_genres.join(", ")
         }
     );
-    println!("  date   : {}", lfm_date.as_deref().unwrap_or("(none)"));
+
     println!(
         "  track# : {}",
         lfm_track_number

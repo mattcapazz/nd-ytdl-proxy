@@ -1,6 +1,6 @@
 [package]
 name = "nd-ytdl-proxy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [[bin]]
@@ -33,6 +33,6 @@ reqwest = { version = "0.13.2", default-features = false, features = ["json", "r
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 scraper = "0.26.0"
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
-tokio = { version = "1.51.1", features = ["macros", "process", "rt-multi-thread"] }
+tokio = { version = "1.52.0", features = ["macros", "process", "rt-multi-thread"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"

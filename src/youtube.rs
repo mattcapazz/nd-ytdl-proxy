@@ -21,7 +21,7 @@ pub async fn handle_stream(req: HttpRequest) -> actix_web::Result<HttpResponse> 
     let user = query_map.get("u").cloned().unwrap_or_default();
     crate::db::add_song(&user, &artist, &title);
 
-    // check if the file is already on disk and serve it directly - avoids YouTube CDN issues
+    // check if the file is already on disk and serve it directly, avoids YouTube CDN issues
     let stripped = crate::utils::strip_artist_prefix(&artist, &title);
     let safe_title = crate::utils::sanitize_filename(&stripped);
     let artist_dir = crate::utils::find_artist_dir(&crate::utils::music_dir(), &artist);
@@ -225,7 +225,7 @@ pub async fn handle_cover_art(req: HttpRequest) -> actix_web::Result<HttpRespons
     let image_url = if let Some(url) = crate::lastfm::get_cached_cover(&raw_id) {
         url
     } else if let Some((artist, title)) = crate::lastfm::decode_track_id(&raw_id) {
-        let (_, image_url, _, _, _) = crate::lastfm::lookup(&artist, &title).await;
+        let (_, image_url, _, _) = crate::lastfm::lookup(&artist, &title).await;
         match image_url {
             Some(url) => {
                 crate::lastfm::cache_cover(&raw_id, &url);

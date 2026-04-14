@@ -102,14 +102,6 @@ async fn main() {
 
         scanned += 1;
 
-        // log lastfm lookup (album/genres/date) for visibility
-        /* let (_lfm_album, _lfm_image, _lfm_genres, _lfm_date) =
-            lastfm::lookup(&artist_name, &title).await;
-        println!(
-            "lastfm lookup for '{} / {}': album={:?}, genres={:?}, date={:?}",
-            artist_name, title, lfm_album, lfm_genres, lfm_date
-        ); */
-
         // fix missing tags || date
         let (album, genre, artist) = metadata::read_tags(&path_str).await;
         let mut attempted_fix = false;
@@ -173,11 +165,7 @@ async fn main() {
 
         // fix missing cover art
         if !metadata::has_picture(&path_str) {
-            let (_, image_url, _, _lfm_date, _) = lastfm::lookup(&artist_name, &title).await;
-            /* println!(
-                "  lastfm lookup for art {}/{}: date={:?}",
-                artist_name, title, lfm_date
-            ); */
+            let (_, image_url, _, _) = lastfm::lookup(&artist_name, &title).await;
             let key = format!("{}/{}", artist_name, title);
             if let Some(url) = image_url {
                 print!("  fixing art: {}/{} ... ", artist_name, title);

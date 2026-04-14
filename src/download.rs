@@ -21,7 +21,7 @@ pub async fn download_and_scan(
     video_id: &str,
     artist: &str,
     title: &str,
-    raw_query: &str,
+    _raw_query: &str,
     user: &str,
     yt_metadata: Option<JsonValue>,
 ) -> anyhow::Result<()> {
@@ -113,15 +113,12 @@ pub async fn download_and_scan(
 
     info!("yt {}: download complete", video_id);
 
-    // fetch lastfm album/genres (we won't rely on API releasedate)
-    let (lfm_album, lfm_image, lfm_genres, _lfm_date, lfm_track_number) =
+    let (lfm_album, lfm_image, lfm_genres, lfm_track_number) =
         crate::lastfm::lookup(artist, title).await;
 
-    // read existing tags and date to avoid clobbering and to determine if we should try album lookups
     let (cur_album, cur_genre, cur_artist) = crate::metadata::read_tags(&dest).await;
     let cur_date = crate::metadata::read_date(&dest).await;
 
-    // if Last.fm provided an image URL, embed it (overwrite youtube thumbnail when possible)
     if let Some(img) = lfm_image.as_deref() {
         if !img.is_empty() {
             info!(
@@ -233,12 +230,11 @@ pub async fn download_and_scan(
     };
     for part in individual_artists {
         if !already_queued(&part) {
-            let rq = raw_query.to_string();
             let u = user.to_string();
             info!("queuing top 10 download: {}", part);
             let p = part.clone();
             tokio::spawn(async move {
-                if let Err(e) = download_artist_top10(&p, &rq, &u).await {
+                if let Err(e) = download_artist_top10(&p, &u).await {
                     warn!("artist top 10 download failed for {}: {}", p, e);
                 }
             });
@@ -384,7 +380,7 @@ pub(crate) fn month_number_to_name(m: &str) -> Option<&'static str> {
     }
 }
 
-async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Result<()> {
+async fn download_artist_top10(artist: &str, user: &str) -> anyhow::Result<()> {
     let base = music_dir();
     let artist_dir = crate::utils::find_artist_dir(base, artist);
     let archive_path = format!("{}/archive.txt", artist_dir);
@@ -457,9 +453,9 @@ async fn download_artist_top10(artist: &str, _: &str, user: &str) -> anyhow::Res
 
 pub fn delete_song_file(artist: &str, title: &str) {
     let base = music_dir();
-    let safe_artist = crate::utils::sanitize_filename(artist);
+    let artist_dir = crate::utils::find_artist_dir(base, artist);
     let safe_title = crate::utils::sanitize_filename(title);
-    let path = format!("{}/{}/{}.opus", base, safe_artist, safe_title);
+    let path = format!("{}/{}.opus", artist_dir, safe_title);
     if std::path::Path::new(&path).exists() {
         std::fs::remove_file(&path).ok();
         info!("deleted song file: {}", path);
@@ -564,7 +560,7 @@ pub async fn download_song(
 
     info!("yt {}: download complete", video_id);
 
-    let (lfm_album, lfm_image, lfm_genres, _lfm_date, lfm_track_number) =
+    let (lfm_album, lfm_image, lfm_genres, lfm_track_number) =
         crate::lastfm::lookup(artist, title).await;
 
     let (cur_album, cur_genre, cur_artist) = crate::metadata::read_tags(&dest).await;

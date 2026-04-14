@@ -157,7 +157,6 @@ pub struct TrackInfo {
     pub image_url: Option<String>,
     pub genres: Vec<String>,
     pub duration_sec: i64,
-    pub release_date: Option<String>,
 }
 
 pub async fn search(query: &str) -> Vec<TrackInfo> {
@@ -184,7 +183,7 @@ pub async fn search(query: &str) -> Vec<TrackInfo> {
             let name = t["name"].as_str().unwrap_or("").to_string();
             let artist = t["artist"].as_str().unwrap_or("").to_string();
             async move {
-                let (album, image_url, genres, duration, release_date, _track_number) =
+                let (album, image_url, genres, duration, _track_number) =
                     get_track_info(&artist, &name).await;
                 TrackInfo {
                     name,
@@ -193,7 +192,6 @@ pub async fn search(query: &str) -> Vec<TrackInfo> {
                     image_url,
                     genres,
                     duration_sec: duration.unwrap_or(0),
-                    release_date,
                 }
             }
         })
@@ -211,7 +209,6 @@ async fn get_track_info(
     Option<String>,
     Vec<String>,
     Option<i64>,
-    Option<String>,
     Option<u32>,
 ) {
     let data = match api_call(&[
@@ -222,14 +219,14 @@ async fn get_track_info(
     .await
     {
         Some(v) => v,
-        None => return (None, None, vec![], None, None, None),
+        None => return (None, None, vec![], None, None),
     };
 
     let t = &data["track"];
 
     let mut album = t["album"]["title"].as_str().map(str::to_string);
 
-    // track position - prefer album.getInfo tracklist rank (always an integer in the API response)
+    // track position, prefer album.getInfo tracklist rank (always an integer in the API response)
     let mut track_number: Option<u32> = t["album"]["@attr"]["position"]
         .as_u64()
         .or_else(|| {
@@ -396,27 +393,20 @@ async fn get_track_info(
         }
     }
 
-    (album, image_url, genres, duration, None, track_number)
+    (album, image_url, genres, duration, track_number)
 }
 
 pub async fn lookup(
     artist: &str,
     title: &str,
-) -> (
-    Option<String>,
-    Option<String>,
-    Vec<String>,
-    Option<String>,
-    Option<u32>,
-) {
-    let (album, image_url, genres, _, release_date, track_number) =
-        get_track_info(artist, title).await;
-    (album, image_url, genres, release_date, track_number)
+) -> (Option<String>, Option<String>, Vec<String>, Option<u32>) {
+    let (album, image_url, genres, _, track_number) = get_track_info(artist, title).await;
+    (album, image_url, genres, track_number)
 }
 
 // returns the track duration in seconds from Last.fm, or None if unavailable
 pub async fn track_duration_sec(artist: &str, title: &str) -> Option<i64> {
-    let (_, _, _, duration, _, _) = get_track_info(artist, title).await;
+    let (_, _, _, duration, _) = get_track_info(artist, title).await;
     duration.filter(|&d| d > 0)
 }
 

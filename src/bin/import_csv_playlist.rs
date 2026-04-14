@@ -1,24 +1,25 @@
-//! Import playlists from CSV files to Navidrome
+//! Import a playlist from csv file to Navidrome
 //!
-//! Reads a CSV file with title,artist format and creates or updates a Navidrome playlist,
-//! downloading songs from YouTube as needed. Use a Spotify playlist extractor
-//! browser extension to export your Spotify playlists to CSV format.
+//! Reads a csv file and creates or updates a Navidrome playlist,
+//! downloading songs from YouTube as needed.
 //!
-//! Playlist location: src/bin/playlist.csv
+//! csv file: ./src/bin/playlist.csv
 //!
 //! Usage:
 //!   import-csv-playlist <user> [playlist_name]
 //!
-//! CSV format (title,artist per line):
-//!   Thank You For Loving Me,Bon Jovi
-//!   Shelter,Porter Robinson
+//! CSV format (title,artist[,youtube_url] per line):
+//!   Song Name 1,Artist1
+//!   Song2,Artist 2
+//!   "Song, with commas",Artist3
+//!   "Obscure Song",Really Unknown Artist,https://youtu.be/video_id
 //!
 //! Rate limiting: 15 downloads per 5 minutes
 //! Environment variables:
-//!   UPSTREAM_URL - Navidrome URL (default: http://localhost:4533)
-//!   ND_ADMIN_USER - admin username (default: admin)
-//!   ND_ADMIN_PASS - admin password (default: admin)
-//!   MUSIC_DIR - music directory (default: ./music)
+//!   UPSTREAM_URL (default: http://localhost:4533)
+//!   ND_ADMIN_USER
+//!   ND_ADMIN_PASS
+//!   MUSIC_DIR
 //!   DB_PATH - database path (default: data/library.db)
 
 use nd_ytdl_proxy::{db, download, title, utils};
@@ -377,7 +378,7 @@ async fn yt_video_id(
         );
     }
 
-    // no duration filter - return first result's id
+    // no duration filter, return first result's id
     let id = lines[0].split_whitespace().next().unwrap_or("").to_string();
     anyhow::ensure!(!id.is_empty(), "no YouTube result for: {}", query);
     Ok(id)
@@ -479,7 +480,7 @@ async fn main() {
             continue;
         }
 
-        // song not in navidrome yet - apply rate limit then download
+        // song not in navidrome yet, apply rate limit then download
         let now = Instant::now();
         download_times.retain(|t| now.duration_since(*t) < window);
         if download_times.len() >= max_per_window {
