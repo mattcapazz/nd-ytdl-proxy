@@ -107,18 +107,25 @@ pub async fn handle(req: HttpRequest) -> actix_web::Result<HttpResponse> {
         }
     };
 
-    let nd_titles: HashSet<String> = nd_songs
+    // dedup key: lowercase "artist - title"
+    let nd_keys: HashSet<String> = nd_songs
         .iter()
-        .filter_map(|s| s["title"].as_str().map(|t| t.to_lowercase()))
+        .filter_map(|s| {
+            let a = s["artist"].as_str()?.to_lowercase();
+            let t = s["title"].as_str()?.to_lowercase();
+            Some(format!("{} - {}", a, t))
+        })
         .collect();
 
+    let mut seen: HashSet<String> = nd_keys;
     let lfm_deduped: Vec<Value> = lfm_songs
         .into_iter()
         .filter(|s| {
-            s["title"]
-                .as_str()
-                .map(|t| !nd_titles.contains(&t.to_lowercase()))
-                .unwrap_or(true)
+            let key = match (s["artist"].as_str(), s["title"].as_str()) {
+                (Some(a), Some(t)) => format!("{} - {}", a.to_lowercase(), t.to_lowercase()),
+                _ => return true,
+            };
+            seen.insert(key)
         })
         .collect();
 
@@ -170,7 +177,8 @@ fn map_lastfm_tracks(tracks: &[crate::lastfm::TrackInfo]) -> Vec<Value> {
     tracks
         .iter()
         .map(|t| {
-            let id = crate::lastfm::encode_track_id(&t.artist, &t.name);
+            let clean_name = crate::utils::strip_artist_prefix(&t.artist, &t.name);
+            let id = crate::lastfm::encode_track_id(&t.artist, &clean_name);
 
             if let Some(ref url) = t.image_url {
                 crate::lastfm::cache_cover(&id, url);
@@ -192,7 +200,7 @@ fn map_lastfm_tracks(tracks: &[crate::lastfm::TrackInfo]) -> Vec<Value> {
 
             serde_json::json!({
                 "id": &id,
-                "title": &t.name,
+                "title": &clean_name,
                 "artist": &t.artist,
                 "artistId": format!("yt_artist_{}", primary),
                 "album": t.album.as_deref().unwrap_or(""),
@@ -207,7 +215,7 @@ fn map_lastfm_tracks(tracks: &[crate::lastfm::TrackInfo]) -> Vec<Value> {
                 "size": 1_000_000,
                 "suffix": "opus",
                 "contentType": "audio/ogg",
-                "path": format!("{}/{}.opus", t.artist, t.name),
+                "path": format!("{}/{}.opus", t.artist, clean_name),
                 "genres": genres_json,
                 "bpm": 0,
                 "moods": [],

@@ -2,6 +2,7 @@ services:
   navidrome:
     image: deluan/navidrome:latest
     restart: unless-stopped
+    container_name: navidrome
     ports:
       - "4533:4533"
     volumes:
@@ -16,6 +17,7 @@ services:
   proxy:
     build: .
     restart: unless-stopped
+    container_name: nd-ytdl-proxy
     ports:
       - "4532:4532"
     environment:

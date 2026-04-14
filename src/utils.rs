@@ -50,27 +50,29 @@ pub fn parse_query(q: &str) -> HashMap<String, String> {
 }
 
 pub fn url_decode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '+' => out.push(' '),
-            '%' => {
-                let hi = chars.next().unwrap_or('0');
-                let lo = chars.next().unwrap_or('0');
-                let hex = format!("{}{}", hi, lo);
-                if let Ok(b) = u8::from_str_radix(&hex, 16) {
-                    out.push(b as char);
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
+    let mut chars = s.bytes().peekable();
+    while let Some(b) = chars.next() {
+        match b {
+            b'+' => bytes.push(b' '),
+            b'%' => {
+                let hi = chars.next().unwrap_or(b'0');
+                let lo = chars.next().unwrap_or(b'0');
+                let hex = [hi, lo];
+                if let Ok(decoded) =
+                    u8::from_str_radix(std::str::from_utf8(&hex).unwrap_or("00"), 16)
+                {
+                    bytes.push(decoded);
                 } else {
-                    out.push('%');
-                    out.push(hi);
-                    out.push(lo);
+                    bytes.push(b'%');
+                    bytes.push(hi);
+                    bytes.push(lo);
                 }
             }
-            _ => out.push(c),
+            _ => bytes.push(b),
         }
     }
-    out
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 pub fn url_encode_param(s: &str) -> String {
@@ -149,6 +151,20 @@ pub fn split_artists(s: &str) -> Vec<String> {
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect()
+}
+
+// strip "Artist - " or "Artist: " from the start of a title when it duplicates the artist
+pub fn strip_artist_prefix(artist: &str, title: &str) -> String {
+    let norm_artist = deunicode::deunicode(artist).to_lowercase();
+    let norm_title = deunicode::deunicode(title).to_lowercase();
+
+    for sep in &[" - ", ": "] {
+        let prefix = format!("{}{}", norm_artist, sep);
+        if norm_title.starts_with(&prefix) {
+            return title[prefix.len()..].trim().to_string();
+        }
+    }
+    title.to_string()
 }
 
 // returns artist name with " / " separators so Navidrome can parse individual artists
