@@ -118,9 +118,12 @@ async fn find_or_create_playlist(name: &str) -> anyhow::Result<String> {
 
 // strips punctuation and collapses whitespace for fuzzy title comparison
 fn normalize(s: &str) -> String {
-    // remove apostrophes first so "what's" → "whats" (matches FTS5 indexing)
+    // remove apostrophes first so "what's" -> "whats" (matches FTS5 indexing)
     let no_apos = s.replace('\'', "").replace('\u{2019}', "");
-    no_apos
+    // deunicode converts accented chars to ASCII so FTS5 matches them consistently
+    // e.g. á -> a, – -> -
+    let ascii = deunicode::deunicode(&no_apos);
+    ascii
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { ' ' })
         .collect::<String>()
@@ -161,7 +164,7 @@ async fn search_navidrome(artist: &str, track_title: &str) -> Option<String> {
 
         for query in &queries {
             let url = format!(
-                "{}/rest/search3.view?{}&query={}&songCount=10",
+                "{}/rest/search3.view?{}&query={}&songCount=25",
                 nd_url(),
                 utils::admin_auth_query(),
                 utils::url_encode_param(query)
@@ -318,7 +321,7 @@ fn yt_id_from_url(url: &str) -> Option<String> {
     None
 }
 
-// searches up to 5 YouTube results and returns the first video ID whose duration
+// searches up to 10 YouTube results and returns the first video ID whose duration
 // is within 10 seconds of the expected Last.fm duration (if known)
 async fn yt_video_id(
     artist: &str,
@@ -326,7 +329,7 @@ async fn yt_video_id(
     expected_sec: Option<i64>,
 ) -> anyhow::Result<String> {
     let query = format!("{} - {}", artist, track_title);
-    let count = if expected_sec.is_some() { "5" } else { "1" };
+    let count = if expected_sec.is_some() { "10" } else { "1" };
     let output = tokio::process::Command::new("yt-dlp")
         .args([
             &format!("ytsearch{}:{}", count, query),

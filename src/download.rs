@@ -336,10 +336,29 @@ pub(crate) fn extract_album_and_date_from_json(v: &JsonValue) -> (Option<String>
 
 // fetch yt-dlp JSON for a video and extract album/date
 async fn get_yt_album_and_date(video_id: &str) -> anyhow::Result<(Option<String>, Option<String>)> {
-    let output = Command::new("yt-dlp")
+    let child = Command::new("yt-dlp")
         .args(["-j", &format!("https://youtu.be/{}", video_id)])
-        .output()
-        .await?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+
+    let timeout = tokio::time::Duration::from_secs(30);
+    // take the id before wait_with_output consumes child, for use in the kill path
+    let child_id = child.id();
+    let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(result) => result?,
+        Err(_) => {
+            warn!("yt {}: metadata fetch timed out after 30s", video_id);
+            if let Some(pid) = child_id {
+                let _ = tokio::process::Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F"])
+                    .status()
+                    .await;
+            }
+            return Ok((None, None));
+        }
+    };
+
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if stdout.trim().is_empty() {
         return Ok((None, None));
