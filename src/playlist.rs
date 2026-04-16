@@ -160,9 +160,9 @@ async fn handle_delete_queue_update(
     let mut nd_ids_to_remove: Vec<String> = Vec::new();
 
     for song_id in &song_ids {
-        let (artist, title, is_nd) = if song_id.starts_with("yt_") {
+        let (artist, title, album_id, is_nd) = if song_id.starts_with("yt_") {
             match lastfm::decode_track_id(song_id) {
-                Some((a, t)) => (a, t, false),
+                Some((a, t)) => (a, t, String::new(), false),
                 None => continue,
             }
         } else {
@@ -184,20 +184,21 @@ async fn handle_delete_queue_update(
             let song = &data["subsonic-response"]["song"];
             let a = song["artist"].as_str().unwrap_or("").to_string();
             let mut t = song["title"].as_str().unwrap_or("").to_string();
+            let al = song["albumId"].as_str().unwrap_or("").to_string();
             if a.is_empty() || t.is_empty() {
                 continue;
             }
             if let Some(stripped) = t.strip_prefix(&a).and_then(|s| s.strip_prefix(" - ")) {
                 t = stripped.to_string();
             }
-            (a, t, true)
+            (a, t, al, true)
         };
 
         info!(
             "delete queue: trashing '{}' - '{}' for user '{}'",
             artist, title, user
         );
-        db::trash_song(user, &artist, &title);
+        db::trash_song(user, &artist, &title, &album_id);
 
         if !db::song_owned_by_others(user, &artist, &title) {
             info!(

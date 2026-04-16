@@ -14,6 +14,7 @@ static DB: LazyLock<Mutex<Connection>> = LazyLock::new(|| {
             title TEXT NOT NULL COLLATE NOCASE,
             trashed INTEGER NOT NULL DEFAULT 0,
             added_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            album_id TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (user, artist, title)
         )",
     )
@@ -74,13 +75,31 @@ pub fn add_songs(user: &str, songs: &[(String, String)]) {
 }
 
 // mark a song as trashed so it stops appearing for this user
-pub fn trash_song(user: &str, artist: &str, title: &str) {
+pub fn trash_song(user: &str, artist: &str, title: &str, album_id: &str) {
     let db = DB.lock().unwrap();
     db.execute(
-        "UPDATE user_songs SET trashed = 1 WHERE user = ?1 AND artist = ?2 AND title = ?3",
-        rusqlite::params![user, artist, title],
+        "INSERT INTO user_songs (user, artist, title, trashed, album_id) VALUES (?1, ?2, ?3, 1, ?4)
+         ON CONFLICT(user, artist, title) DO UPDATE SET trashed = 1, album_id = CASE WHEN album_id = '' THEN excluded.album_id ELSE album_id END",
+        rusqlite::params![user, artist, title, album_id],
     )
     .ok();
+}
+
+// album ids where every song the user has from that album is trashed
+pub fn get_fully_trashed_album_ids(user: &str) -> HashSet<String> {
+    let db = DB.lock().unwrap();
+    let mut stmt = db
+        .prepare(
+            "SELECT album_id FROM user_songs
+             WHERE user = ?1 AND album_id != ''
+             GROUP BY album_id
+             HAVING SUM(CASE WHEN trashed = 0 THEN 1 ELSE 0 END) = 0 AND COUNT(*) > 0",
+        )
+        .unwrap();
+    stmt.query_map(rusqlite::params![user], |row| row.get::<_, String>(0))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
 }
 
 // get set of artist names that have at least one non-trashed song
@@ -131,6 +150,33 @@ pub fn has_any(user: &str) -> bool {
         )
         .unwrap_or(0);
     count > 0
+}
+
+pub fn has_trashed(user: &str) -> bool {
+    let db = DB.lock().unwrap();
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM user_songs WHERE user = ?1 AND trashed = 1",
+            rusqlite::params![user],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    count > 0
+}
+
+// artists where the user has at least one trashed song and no non-trashed songs
+pub fn get_trashed_only_artists(user: &str) -> HashSet<String> {
+    let db = DB.lock().unwrap();
+    let mut stmt = db
+        .prepare(
+            "SELECT DISTINCT artist FROM user_songs WHERE user = ?1 AND trashed = 1
+             AND artist NOT IN (SELECT artist FROM user_songs WHERE user = ?1 AND trashed = 0)",
+        )
+        .unwrap();
+    stmt.query_map(rusqlite::params![user, user], |row| row.get::<_, String>(0))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
 }
 
 // remove songs from navidrome's media_file table so they don't linger as missing

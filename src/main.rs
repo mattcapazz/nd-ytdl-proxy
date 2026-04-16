@@ -165,7 +165,7 @@ async fn handle_filtered(
     let query_map = parse_query(req.uri().query().unwrap_or(""));
     let user = query_map.get("u").cloned().unwrap_or_default();
 
-    if user.is_empty() || !db::has_any(&user) {
+    if user.is_empty() || (!db::has_any(&user) && !db::has_trashed(&user)) {
         return proxy::forward(req, payload).await;
     }
 
