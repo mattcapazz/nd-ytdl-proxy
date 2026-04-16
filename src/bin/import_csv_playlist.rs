@@ -63,7 +63,7 @@ async fn read_csv(path: &str) -> anyhow::Result<Vec<Song>> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
-        // strip YouTube-style tags and artist prefix duplications from the title
+        // strip yt style tags and artist prefix duplications from the title
         let clean = title::strip_tags(raw_title);
         let clean = utils::strip_artist_prefix(&artist, &clean);
         if !artist.is_empty() && !clean.is_empty() {
@@ -136,15 +136,27 @@ fn normalize(s: &str) -> String {
 // searches Navidrome for a song by artist+title, returns its internal song ID
 async fn search_navidrome(artist: &str, track_title: &str) -> Option<String> {
     // build a list of progressively shorter title variants to try:
-    // e.g. "Hard to Say I'm Sorry / Get Away - 2005 Remaster"
-    //   -> "Hard to Say I'm Sorry / Get Away"
-    //   -> "Hard to Say I'm Sorry"
+    // e.g. "We Will Rock You / We Are the Champions - 20XX Remaster"
+    //   -> "We Will Rock You / We Are the Champions"
+    //   -> "We Will Rock You"
     let mut variants: Vec<String> = vec![track_title.to_string()];
     for sep in [" - ", " / "] {
         if let Some(pos) = track_title.find(sep) {
             let shorter = track_title[..pos].trim().to_string();
             if !shorter.is_empty() && !variants.contains(&shorter) {
                 variants.push(shorter);
+            }
+        }
+    }
+    // also try stripping featured-artist annotations in case the file was indexed without them
+    // e.g. "Song Name (feat. Artist)" -> "Song Name"
+    for open in ["(feat.", "[feat.", "(ft.", "[ft."] {
+        for v in variants.clone() {
+            if let Some(pos) = v.to_lowercase().find(open) {
+                let shorter = v[..pos].trim().to_string();
+                if !shorter.is_empty() && !variants.contains(&shorter) {
+                    variants.push(shorter);
+                }
             }
         }
     }

@@ -110,7 +110,14 @@ pub fn find_artist_dir(base: &str, artist: &str) -> String {
     }
 
     let sanitized = sanitize_filename(artist);
+    // strip trailing dots (yt-dlp replaces trailing dots in path components with '#')
+    let sanitized = sanitized.trim_end_matches('.').to_string();
     let candidate = format!("{}/{}", base, sanitized);
+    // yt-dlp appends '#' when stripping a trailing dot, so prefer that dir if it exists
+    let hash_candidate = format!("{}#", candidate);
+    if std::path::Path::new(&hash_candidate).exists() {
+        return hash_candidate;
+    }
     if std::path::Path::new(&candidate).exists() {
         return candidate;
     }
@@ -122,6 +129,11 @@ pub fn find_artist_dir(base: &str, artist: &str) -> String {
                 let name = name_os.to_string();
                 let existing = canonical(&name);
                 if existing == target {
+                    // prefer the # variant (yt-dlp trailing-dot sanitization)
+                    let hash_path = format!("{}/{}#", base, name);
+                    if std::path::Path::new(&hash_path).exists() {
+                        return hash_path;
+                    }
                     return format!("{}/{}", base, name);
                 }
                 // tolerate ligature transliterations like "ae" vs "a"
